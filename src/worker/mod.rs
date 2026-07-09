@@ -10,7 +10,9 @@ use futures::future::{Future, FutureExt};
 use serde::{de::DeserializeOwned, Serialize};
 use std::sync::Arc;
 use uuid::Uuid;
+
 mod worker_opts;
+
 use crate::Dt;
 
 use crate::error::WorkerError;
@@ -23,6 +25,7 @@ use serde::Deserialize;
 use tokio::{sync::Notify, task::JoinHandle};
 use tokio_metrics::TaskMonitor;
 use tokio_util::{sync::CancellationToken, task::TaskTracker};
+
 type JobMeta<D, R, P> = (
     Job<D, R, P>,
     JobToken,
@@ -31,19 +34,29 @@ type JobMeta<D, R, P> = (
     Mutex<Histogram<u64>>,
     WorkerOpts,
 );
+
 use crossbeam::atomic::AtomicCell;
 use crossbeam_skiplist::SkipMap;
+
 pub type JobMap<D, R, P> = Arc<SkipMap<u64, JobMeta<D, R, P>>>;
+
 pub type Task = JoinHandle<KioResult<()>>;
+
 pub type TaskHandle = ArcSwapOption<Task>;
+
 pub type SharedTaskHandle = Arc<TaskHandle>;
+
 /// Alias for the `processing_queue`. changed from (`Futures::FuturesUnordered` -> `TaskTracker`)
+
 pub type ProcessingQueue = TaskTracker;
+
 use derive_more::IsVariant;
 pub use worker_opts::WorkerOpts;
+
 /// The current lifecycle state of a [`Worker`].
 #[derive(IsVariant, Default, Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[repr(u8)]
+
 pub enum WorkerState {
     /// The worker is actively polling and processing jobs.
     Active,
@@ -53,12 +66,14 @@ pub enum WorkerState {
     /// The worker has been shut down via [`Worker::close`].
     Closed,
 }
+
 #[cfg(feature = "tracing")]
 use compact_str::ToCompactString;
 #[cfg(feature = "tracing")]
 use tracing::{debug, instrument, warn, Instrument, Span};
 
 pub use worker_opts::MIN_DELAY_MS_LIMIT;
+
 /// A job processor that consumes jobs from a [`Queue`].
 ///
 /// Each `Worker` runs an internal async loop that fetches jobs from the queue
@@ -106,6 +121,7 @@ pub use worker_opts::MIN_DELAY_MS_LIMIT;
 /// # }
 /// ```
 #[derive(Clone, Debug)]
+
 pub struct Worker<D, R, P, S> {
     /// The creation datetime of this worker
     pub created_at: Dt,
@@ -128,9 +144,12 @@ pub struct Worker<D, R, P, S> {
     continue_notifier: Arc<Notify>,
     main_task: SharedTaskHandle,
 }
+
 use crate::utils::processor_types;
 use processor_types::Callback;
+
 /// A callback definition alias for the worker
+
 pub type WorkerCallback<D, R, P, S> = Callback<D, R, P, S>;
 
 impl<
@@ -174,6 +193,7 @@ impl<
     /// # }
     /// ```
     #[track_caller]
+
     pub fn new_sync<C, E>(
         queue: &Queue<D, R, P, S>,
         processor: C,
@@ -188,8 +208,10 @@ impl<
         S: Sync + Store<D, R, P> + Send + 'static,
         E: std::error::Error + Send + 'static,
     {
+
         Self::new::<C, SyncFn<C, D, R, P, S, E>, E>(queue, processor, worker_opts)
     }
+
     /// Creates a worker with an **async** processor function.
     ///
     /// The processor runs directly on the Tokio runtime; it is best suited for
@@ -222,6 +244,7 @@ impl<
     /// # }
     /// ```
     #[track_caller]
+
     pub fn new_async<C, Fut, E>(
         queue: &Queue<D, R, P, S>,
         processor: C,
@@ -237,10 +260,14 @@ impl<
         D: Send + Sync + 'static,
         E: std::error::Error + Send + 'static,
     {
+
         use processor_types::AsyncFn;
+
         Self::new::<C, AsyncFn<C, D, R, P, S, E>, E>(queue, processor, worker_opts)
     }
+
     #[track_caller]
+
     fn new<C, F, E>(
         queue: &Queue<D, R, P, S>,
         processor: C,
@@ -256,37 +283,57 @@ impl<
         S: Store<D, R, P> + Send + Sync + 'static,
         E: std::error::Error + Send + 'static,
     {
+
         let queue = Arc::new(queue.clone());
+
         let f: F = processor.into();
+
         let callback = Callback::from(f);
+
         let id = Uuid::new_v4();
+
         let opts = worker_opts.unwrap_or_default();
+
         let jobs_in_progress = queue.jobs_in_progress.clone();
+
         let cancellation_token: Arc<CancellationToken> = Arc::default();
+
         let continue_notifier = queue.worker_notifier.clone();
+
         let state: Arc<AtomicCell<WorkerState>> = Arc::default();
+
         let processing = TaskTracker::new();
+
         #[cfg(feature = "tracing")]
         let resource_span = {
+
             let callback_type = match &callback {
                 Callback::Async(_) => "Async",
                 Callback::Sync(_) => "Sync",
             };
+
             {
+
                 let location = std::panic::Location::caller().to_compact_string();
+
                 let queue_name = queue.name();
+
                 let worker_type = format!(
                     "{}-Worker({},{queue_name})",
                     callback_type,
                     id.as_u64_pair().0,
                 );
+
                 tracing::info_span!(parent:None, "",worker_type, ?location)
             }
         };
 
         let created_at = Utc::now();
+
         queue.add_worker(id, processing.clone(), state.clone(), opts, created_at);
+
         let main_task = Arc::default();
+
         let worker = Self {
             created_at,
             state,
@@ -304,7 +351,9 @@ impl<
             cancellation_token,
             active_job_count: Arc::default(),
         };
+
         if worker.opts.autorun {
+
             worker.run()?;
         }
 
@@ -313,14 +362,20 @@ impl<
 
     /// Returns `true` if the worker is actively processing jobs.
     #[must_use]
+
     pub fn is_running(&self) -> bool {
+
         self.state.load().is_active() && !self.cancellation_token.is_cancelled()
     }
+
     /// Returns `true` if the worker is idle (started but waiting for work).
     #[must_use]
+
     pub fn is_idle(&self) -> bool {
+
         self.state.load().is_idle()
     }
+
     /// Starts the worker's job-processing loop.
     ///
     /// # Errors
@@ -355,19 +410,27 @@ impl<
     /// # Ok(())
     /// # }
     /// ```
+
     pub fn run(&self) -> KioResult<()> {
+
         let prev = self
             .state
             .compare_exchange(WorkerState::Idle, WorkerState::Active);
+
         if let Err(current) = prev {
+
             if current.is_active() && !self.cancellation_token.is_cancelled() {
+
                 return Err(WorkerError::WorkerAlreadyRunningWithId(self.id).into());
             }
+
             // if closed or canceled, return another error
             if current.is_closed() || self.cancellation_token.is_cancelled() {
+
                 return Err(WorkerError::WorkerAlreadyClosed(self.id).into());
             }
         }
+
         #[cfg(not(feature = "tracing"))]
         let params = (
             self.id,
@@ -382,6 +445,7 @@ impl<
             self.state.clone(),
             self.continue_notifier.clone(),
         );
+
         #[cfg(feature = "tracing")]
         let params = (
             self.resource_span.clone(),
@@ -397,17 +461,25 @@ impl<
             self.state.clone(),
             self.continue_notifier.clone(),
         );
+
         #[cfg(feature = "tracing")]
         let main = main_loop(params).instrument(self.resource_span.clone());
+
         #[cfg(not(feature = "tracing"))]
         let main = main_loop(params);
+
         let main_task = tokio::spawn(main.boxed());
+
         self.main_task.swap(Some(main_task.into()));
+
         Ok(())
     }
+
     /// Returns `true` if the worker has been closed (cancelled).
     #[must_use]
+
     pub fn closed(&self) -> bool {
+
         self.cancellation_token.is_cancelled() || self.state.load().is_closed()
     }
 
@@ -423,32 +495,48 @@ impl<
     ///
     /// After calling `close` the worker **cannot** be restarted.  Create a new
     /// worker if you need to resume processing.
+
     pub fn close(&self) {
+
         if !self.is_running() {
+
             return;
         }
+
         #[cfg(feature = "tracing")]
+
         debug!(
             "cancel the worker's engine_loop, current_state: {:#?}",
             self.state.load()
         );
+
         self.processing.close();
 
         self.queue.resume_workers();
+
         self.queue.worker_notifier.notify_waiters();
+
         self.queue.pause_workers.store(false);
+
         self.cancellation_token.cancel();
+
         let mut main_task = self.main_task.load_full();
+
         if let Some(handle) = main_task.take() {
+
             // wait for handle to finishd
             #[cfg(feature = "tracing")]
             {
+
                 let running_tasks = self.processing.len();
+
                 warn!("waiting for all {running_tasks} tasks to complete or abort");
             }
+
             // wait for the main loop to close
             while !handle.is_finished() {}
         }
+
         self.queue.remove_worker(self.id);
     }
 
@@ -456,28 +544,36 @@ impl<
     ///
     /// This is a convenience wrapper around [`Queue::on`].  Returns a listener
     /// ID that can be passed to [`remove_event_listener`](Worker::remove_event_listener).
+
     pub fn on<F, C>(&self, event: JobState, callback: C) -> Uuid
     where
         C: Fn(EventParameters<R, P>) -> F + Send + Sync + 'static,
         F: Future<Output = ()> + Send + Sync + 'static,
     {
+
         self.queue.on(event, callback)
     }
+
     /// Registers a listener for **all** job-state events on the underlying queue.
     ///
     /// This is a convenience wrapper around [`Queue::on_all_events`].
+
     pub fn on_all_events<F, C>(&self, callback: C) -> Uuid
     where
         C: Fn(EventParameters<R, P>) -> F + Send + Sync + 'static,
         F: Future<Output = ()> + Send + Sync + 'static,
     {
+
         self.queue.on_all_events(callback)
     }
+
     /// Removes a previously registered event listener from the underlying queue.
     ///
     /// Returns the listener ID if found and removed, or `None` otherwise.
     #[must_use]
+
     pub fn remove_event_listener(&self, id: Uuid) -> Option<Uuid> {
+
         self.queue.remove_event_listener(id)
     }
 }

@@ -4,14 +4,18 @@ use std::io;
 use thiserror::Error;
 use tokio::task::JoinError;
 use uuid::Uuid;
+
 mod backtrace_utils;
+
 pub use backtrace_utils::{BacktraceCatcher, CaughtError, CaughtPanicInfo};
 use croner::errors::CronError;
+
 /// The top-level error type returned by most `KioMQ` operations.
 ///
 /// Wraps errors from the underlying store backend (Redis, `RocksDB`), serialization
 /// failures, and domain-specific errors from the queue, job, and worker layers.
 #[derive(Debug, Error)]
+
 pub enum KioError {
     #[cfg(feature = "redis-store")]
     #[error(transparent)]
@@ -84,6 +88,7 @@ pub enum KioError {
 
 /// Errors specific to [`Worker`](crate::Worker) lifecycle operations.
 #[derive(Debug, Display, Error)]
+
 pub enum WorkerError {
     /// Returned by [`Worker::run`](crate::Worker::run) when the worker is already running.
     WorkerAlreadyRunningWithId(Uuid),
@@ -92,8 +97,10 @@ pub enum WorkerError {
     /// Internal error emitted when the stalled-job checker encounters a failure.
     FailedToCheckStalledJobs,
 }
+
 /// Errors arising from queue-level operations.
 #[derive(Debug, Display, Error)]
+
 pub enum QueueError {
     /// The stored event-mode byte does not correspond to any known [`QueueEventMode`](crate::QueueEventMode).
     UnKnownEventMode,
@@ -112,9 +119,11 @@ pub enum QueueError {
         current_ms: u64,
     },
 }
+
 /// Errors arising from individual job operations.
 #[repr(i8)]
 #[derive(Debug, PartialEq, Eq, Clone, Copy, Error)]
+
 pub enum JobError {
     /// The requested job does not exist in the store.
     #[error("The job does not exist")]

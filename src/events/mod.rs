@@ -2,6 +2,7 @@ use crate::{FailedDetails, JobMetrics, JobState};
 use compact_str::CompactString;
 use derive_more::Debug;
 use uuid::Uuid;
+
 /// The payload delivered to event listeners registered on a [`Queue`](crate::Queue).
 ///
 /// Each variant corresponds to a [`JobState`](crate::JobState) transition or
@@ -33,6 +34,7 @@ use uuid::Uuid;
 /// # }
 /// ```
 #[derive(Clone, Debug)]
+
 pub enum EventParameters<R, P> {
     /// A job was moved into the priority sorted-set.
     Prioritized {
@@ -121,15 +123,21 @@ pub enum EventParameters<R, P> {
         status: JobState,
     },
 }
+
 use serde::de::DeserializeOwned;
 use std::{sync::Arc, time::Duration};
 use typed_emitter::TypedEmitter;
+
 pub type Emitter<R, P> = TypedEmitter<JobState, EventParameters<R, P>>;
+
 pub type EventEmitter<R, P> = Arc<Emitter<R, P>>;
+
 mod redis_events;
+
 pub use redis_events::QueueStreamEvent;
 
 use crate::KioResult;
+
 impl<R: DeserializeOwned, P: DeserializeOwned> EventParameters<R, P> {
     /// Converts a raw store event into the corresponding typed [`EventParameters`] variant.
     ///
@@ -140,9 +148,13 @@ impl<R: DeserializeOwned, P: DeserializeOwned> EventParameters<R, P> {
     /// # Panics
     ///
     /// Panics if a `Completed` event has no returned value, or a `Progress` event has no data.
+
     pub fn from_queue_event(event: QueueStreamEvent<R, P>) -> KioResult<Self> {
+
         let job_state = event.event;
+
         let job_id = event.job_id;
+
         let parameter = match job_state {
             JobState::Prioritized => Self::Prioritized {
                 job_id: event.job_id,
@@ -167,7 +179,9 @@ impl<R: DeserializeOwned, P: DeserializeOwned> EventParameters<R, P> {
             },
             JobState::Paused | JobState::Resumed | JobState::Obliterated => Self::Void,
             JobState::Completed => {
+
                 let job_metrics = event.metrics.unwrap_or_default();
+
                 Self::Completed {
                     job_metrics,
                     job_id,

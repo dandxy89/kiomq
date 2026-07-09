@@ -6,6 +6,7 @@
     clippy::nursery
 )]
 #![cfg_attr(docsrs, feature(doc_cfg))]
+
 mod error;
 mod events;
 mod job;
@@ -17,6 +18,7 @@ mod stores;
 mod timers;
 mod utils;
 mod worker;
+
 pub use async_backtrace::frame;
 /// Attribute macro that wraps an `async fn` so it appears in
 /// [`async_backtrace`](https://docs.rs/async-backtrace) stack traces.
@@ -75,4 +77,5 @@ pub use utils::{fetch_redis_pass, get_queue_metrics};
 pub use worker::{Worker, WorkerOpts, WorkerState};
 
 /// Convenience alias for `Result<T, KioError>`.
+
 pub type KioResult<T> = Result<T, KioError>;

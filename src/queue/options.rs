@@ -8,9 +8,11 @@ use compact_str::{format_compact, CompactString};
 #[cfg(feature = "redis-store")]
 use redis::{FromRedisValue, ParsingError, ToRedisArgs, ToSingleRedisArg, Value};
 use serde::{Deserialize, Serialize};
+
 #[derive(Serialize, Deserialize, Clone, Debug)]
 #[serde(untagged)]
 /// The outcome of a single processor invocation.
+
 pub enum ProcessedResult<R> {
     /// The processor returned an error.
     Failed(FailedDetails),
@@ -18,9 +20,11 @@ pub enum ProcessedResult<R> {
     /// The processor succeeded, returning a value and timing metrics.
     Success(R, JobMetrics),
 }
+
 /// A typed field update applied to a job record in the store.
 #[derive(Serialize, Deserialize, Clone, Debug)]
 #[serde(untagged)]
+
 pub enum JobField<R> {
     /// Worker lock token.
     Token(JobToken),
@@ -35,15 +39,21 @@ pub enum JobField<R> {
     /// Stack-trace entry captured on failure.
     BackTrace(Trace),
 }
+
 impl<R> JobField<R> {
     /// Returns the store field name (key) for this variant.
+
     pub const fn name(&self) -> &'static str {
+
         match self {
             Self::Token(_) => "token",
             Self::Payload(processed_result) => {
+
                 if let ProcessedResult::Success(_, _) = processed_result {
+
                     "returnedValue"
                 } else {
+
                     "failedReason"
                 }
             }
@@ -56,6 +66,7 @@ impl<R> JobField<R> {
 }
 
 use derive_more::{Debug, Display};
+
 /// Identifies a named collection (list, set, sorted-set, hash, or key) in the
 /// backing store.
 ///
@@ -63,6 +74,7 @@ use derive_more::{Debug, Display};
 /// `{prefix}:{name}:{suffix}`.  The suffix comes from this enum's `Display`
 /// implementation via [`CollectionSuffix::to_collection_name`].
 #[derive(Display, Serialize, Deserialize, PartialEq, Eq, PartialOrd, Ord, Clone, Copy, Debug)]
+
 pub enum CollectionSuffix {
     /// List of jobs that are ready to be processed.
     Active,
@@ -113,11 +125,16 @@ pub enum CollectionSuffix {
 impl CollectionSuffix {
     /// Builds the full collection key as `{prefix}:{name}:{self}` (lowercased).
     #[must_use]
+
     pub fn to_collection_name(&self, prefix: &str, name: &str) -> CompactString {
+
         format_compact!("{}:{}:{}", prefix, name, &self).to_lowercase()
     }
+
     /// create an identifier for this enum
+
     const fn discriminant(&self) -> u8 {
+
         match self {
             Self::Active => 1,
             Self::Completed => 2,
@@ -140,13 +157,16 @@ impl CollectionSuffix {
             Self::ProcessMetrics => 19,
         }
     }
+
     /// Encodes this variant as a compact `u64` tag.
     ///
     /// The top 8 bits identify the variant and the lower 56 bits hold any
     /// payload (job ID, UUID fragment, etc.).  Used for O(1) membership checks
     /// in in-memory sets.
     #[must_use]
+
     pub fn tag(&self) -> u64 {
+
         let top = u64::from(self.discriminant()) << 56; // high 8 bits for variant id
         match self {
             // Fieldless variants → just top bits
@@ -172,16 +192,23 @@ impl CollectionSuffix {
             Self::Job(id) | Self::Lock(id) => top | (id & 0x00FF_FFFF_FFFF_FFFF),
         }
     }
+
     /// Returns the tag as a big-endian byte array.
     #[must_use]
+
     pub fn to_bytes(&self) -> [u8; 8] {
+
         self.tag().to_be_bytes()
     }
+
     /// Decodes a tag produced by [`CollectionSuffix::tag`] back into the
     /// corresponding enum variant, or `None` if the discriminant is unknown.
     #[must_use]
+
     pub const fn from_tag(tag: u64) -> Option<Self> {
+
         let disc = (tag >> 56) as u8;
+
         let payload = tag & 0x00FF_FFFF_FFFF_FFFF;
 
         Some(match disc {
@@ -206,8 +233,10 @@ impl CollectionSuffix {
         })
     }
 }
+
 impl From<JobState> for CollectionSuffix {
     fn from(val: JobState) -> Self {
+
         match val {
             JobState::Wait => Self::Wait,
             JobState::Stalled | JobState::Paused => Self::Paused,
@@ -225,24 +254,33 @@ impl From<JobState> for CollectionSuffix {
 
 #[cfg(feature = "redis-store")]
 use redis::RedisWrite;
+
 #[cfg(feature = "redis-store")]
+
 impl ToRedisArgs for CollectionSuffix {
     fn write_redis_args<W>(&self, out: &mut W)
     where
         W: ?Sized + RedisWrite,
     {
+
         out.write_arg_fmt(self.to_string().to_lowercase());
     }
 }
+
 #[cfg(feature = "redis-store")]
+
 impl ToSingleRedisArg for CollectionSuffix {}
+
 #[cfg(feature = "redis-store")]
+
 impl ToSingleRedisArg for QueueEventMode {}
+
 /// Controls how events are published and consumed within a queue.
 ///
 /// Set this via [`QueueOpts::event_mode`].
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, Default, Eq, PartialEq)]
 #[repr(u8)]
+
 pub enum QueueEventMode {
     /// Broadcast-only delivery. Listeners that connect after an event is fired
     /// will not receive it.
@@ -252,10 +290,12 @@ pub enum QueueEventMode {
     #[default]
     Stream = 0,
 }
+
 impl TryFrom<u8> for QueueEventMode {
     type Error = QueueError;
 
     fn try_from(value: u8) -> Result<Self, Self::Error> {
+
         match value {
             1 => Ok(Self::PubSub),
             0 => Ok(Self::Stream),
@@ -263,25 +303,36 @@ impl TryFrom<u8> for QueueEventMode {
         }
     }
 }
+
 #[cfg(feature = "redis-store")]
+
 impl FromRedisValue for QueueEventMode {
     fn from_redis_value(v: Value) -> Result<Self, ParsingError> {
+
         let value = if matches!(v, Value::Nil) {
+
             0
         } else {
+
             u8::from_redis_value(v)?
         };
+
         let mode = value.try_into().unwrap_or_default();
+
         Ok(mode)
     }
 }
+
 #[cfg(feature = "redis-store")]
+
 impl ToRedisArgs for QueueEventMode {
     fn write_redis_args<W>(&self, out: &mut W)
     where
         W: ?Sized + redis::RedisWrite,
     {
+
         let value = *self as u8;
+
         out.write_arg_fmt(value);
     }
 }
@@ -290,22 +341,28 @@ impl ToRedisArgs for QueueEventMode {
 ///
 /// Passed to [`crate::Queue::retry_job`].
 #[derive(Clone, Debug)]
+
 pub enum RetryOptions<'a> {
     /// Retry a failed job using the given backoff options.
     Failed(&'a BackOffJobOptions),
     /// Re-enqueue a job according to a [`Repeat`] policy.
     WithRepeat(&'a Repeat),
 }
+
 impl<'a> From<&'a BackOffJobOptions> for RetryOptions<'a> {
     fn from(value: &'a BackOffJobOptions) -> Self {
+
         RetryOptions::Failed(value)
     }
 }
+
 impl<'a> From<&'a Repeat> for RetryOptions<'a> {
     fn from(value: &'a Repeat) -> Self {
+
         Self::WithRepeat(value)
     }
 }
+
 /// Queue-level configuration.
 ///
 /// Pass this to [`crate::Queue::new`] to customise the queue's behaviour.
@@ -328,6 +385,7 @@ impl<'a> From<&'a Repeat> for RetryOptions<'a> {
 /// };
 /// ```
 #[derive(Debug, Clone)]
+
 pub struct QueueOpts {
     /// Policy for removing jobs after they fail.  `None` keeps them forever.
     pub remove_on_fail: Option<RemoveOnCompletionOrFailure>,
@@ -344,8 +402,10 @@ pub struct QueueOpts {
     /// Default repeat policy applied to all jobs unless overridden.
     pub repeat: Option<Repeat>,
 }
+
 impl Default for QueueOpts {
     fn default() -> Self {
+
         Self {
             event_mode: Some(QueueEventMode::default()),
             remove_on_fail: Option::default(),
@@ -356,13 +416,18 @@ impl Default for QueueOpts {
         }
     }
 }
+
 use crossbeam::atomic::AtomicCell;
 
 /// A shared atomic counter used to track job IDs and other queue counters.
+
 pub type Counter = Arc<AtomicCell<u64>>;
+
 fn create_counter(count: u64) -> Counter {
+
     Counter::new(count.into())
 }
+
 /// A live snapshot of queue state counts.
 ///
 /// Counters are stored as `Arc<AtomicU64>` so they can be cheaply shared and
@@ -373,6 +438,7 @@ fn create_counter(count: u64) -> Counter {
 /// Prefer the helper methods like [`all_jobs_completed`](QueueMetrics::all_jobs_completed)
 /// and [`is_idle`](QueueMetrics::is_idle) over reading individual fields directly.
 #[derive(Debug, Clone, Default)]
+
 pub struct QueueMetrics {
     /// The highest job ID ever assigned in this queue.
     pub last_id: Counter,
@@ -399,6 +465,7 @@ pub struct QueueMetrics {
     /// The active event-delivery mode for this queue.
     pub event_mode: Arc<AtomicCell<QueueEventMode>>,
 }
+
 impl QueueMetrics {
     /// Returns `true` when every enqueued job has completed.
     ///
@@ -409,13 +476,18 @@ impl QueueMetrics {
     /// - the queue is otherwise idle (no waiting, delayed, stalled, or
     ///   prioritized jobs and no in-flight workers).
     #[must_use]
+
     pub fn all_jobs_completed(&self) -> bool {
+
         let last_id = self.last_id.load();
+
         last_id > 0 && self.completed.load() == last_id && self.active.load() == 0 && self.is_idle()
     }
+
     #[allow(clippy::too_many_arguments)]
     /// Constructs a `QueueMetrics` from raw counter values read from the store.
     #[must_use]
+
     pub fn new(
         last_id: u64,
         processing: u64,
@@ -430,6 +502,7 @@ impl QueueMetrics {
         is_paused: bool,
         event_mode: QueueEventMode,
     ) -> Self {
+
         Self {
             last_id: create_counter(last_id),
             prioritized: create_counter(prioritized),
@@ -445,59 +518,94 @@ impl QueueMetrics {
             event_mode: Arc::new(AtomicCell::new(event_mode)),
         }
     }
+
     /// Atomically replaces all counters with the values from `other`.
+
     pub fn update(&self, other: &Self) {
+
         self.paused.swap(other.paused.load());
+
         self.completed.swap(other.completed.load());
+
         self.stalled.swap(other.stalled.load());
+
         self.active.swap(other.active.load());
+
         self.last_id.swap(other.last_id.load());
+
         self.delayed.swap(other.delayed.load());
+
         self.failed.swap(other.failed.load());
+
         self.waiting.swap(other.waiting.load());
+
         self.processing.swap(other.processing.load());
+
         self.prioritized.swap(other.prioritized.load());
+
         self.event_mode.swap(other.event_mode.load());
     }
+
     /// Returns `true` if there are delayed jobs ready or waiting to run.
     #[must_use]
+
     pub fn has_delayed(&self) -> bool {
+
         self.delayed.load() > 0
     }
+
     /// Returns `true` if there are jobs waiting to be picked up by a worker.
     #[must_use]
+
     pub fn queue_has_work(&self) -> bool {
+
         self.waiting.load() > 0
             || self.delayed.load() > 0
             || self.stalled.load() > 0
             || self.prioritized.load() > 0
     }
+
     /// Returns `true` if the queue is currently in the paused state.
     #[must_use]
+
     pub fn queue_is_paused(&self) -> bool {
+
         self.is_paused.load()
     }
+
     /// Returns `true` when no workers are currently processing a job.
     #[must_use]
+
     pub fn workers_idle(&self) -> bool {
+
         self.processing.load() == 0
     }
+
     /// Returns `true` if at least one job is in the active state.
     #[must_use]
+
     pub fn has_active_jobs(&self) -> bool {
+
         self.active.load() > 0
     }
+
     /// Returns `true` when the queue is in a fully quiescent state:
     /// no work waiting, no active jobs, and no workers are processing.
     ///
     /// Also requires that `last_id > 0` (i.e. at least one job was ever enqueued).
     #[must_use]
+
     pub fn is_idle(&self) -> bool {
+
         !self.queue_has_work() && !self.has_active_jobs() && self.workers_idle()
     }
+
     /// Resets all counters to zero (equivalent to a freshly created queue).
+
     pub fn clear(&self) {
+
         let default = Self::default();
+
         self.update(&default);
     }
 }

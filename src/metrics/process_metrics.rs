@@ -31,37 +31,46 @@ use tokio_metrics::{RuntimeMetrics, RuntimeMonitor};
 use tokio_util::sync::CancellationToken;
 use tokio_util::time::{delay_queue::Key, DelayQueue};
 use uuid::Uuid;
+
 /// Worker state TTL (milliseconds)
 ///
 /// How long a worker's state is retained in the collector's registry
 /// before being considered expired.
 #[cfg(not(target_os = "linux"))]
+
 pub const WORKER_STATE_TTL: u128 =
     sysinfo::MINIMUM_CPU_UPDATE_INTERVAL.as_millis() + Duration::from_secs(100).as_millis();
+
 /// Worker state TTL (milliseconds)
 ///
 /// How long a worker's state is retained in the collector's registry
 /// before being considered expired.
 #[cfg(target_os = "linux")]
+
 pub const WORKER_STATE_TTL: u128 = Duration::from_secs(100).as_millis();
 
 /// Process metrics collection interval (milliseconds)
 ///
 /// How often the global collector refreshes system and runtime metrics.
 #[cfg(not(target_os = "linux"))]
+
 pub const PROCESS_METRIC_UPDATE_INTERVAL: u128 =
     sysinfo::MINIMUM_CPU_UPDATE_INTERVAL.as_millis() + Duration::from_millis(200).as_millis();
+
 /// Process metrics collection interval (milliseconds)
 ///
 /// How often the global collector refreshes system and runtime metrics.
 #[cfg(target_os = "linux")]
+
 pub const PROCESS_METRIC_UPDATE_INTERVAL: u128 = 300;
+
 /// Global allocator instrumented by [`Heapster`].
 ///
 /// `Heapster` wraps the system allocator and exposes allocation statistics via
 /// `stats()`. Setting this as the global allocator enables the process to
 /// report heap metrics through `GLOBAL.stats()`.
 #[global_allocator]
+
 pub static GLOBAL: Heapster<SystemAlloc> = Heapster::new(SystemAlloc);
 
 /// Global process and runtime metrics collector
@@ -71,6 +80,7 @@ pub static GLOBAL: Heapster<SystemAlloc> = Heapster::new(SystemAlloc);
 /// [`P_METRICS_COLLECTOR`] singleton to register queues/workers and to
 /// receive periodic [`ProcessMetrics`] updates.
 #[derive(Clone)]
+
 pub struct ProcessMetricsCollector {
     /// Hostname of the machine running the process.
     pub hostname: String,
@@ -94,6 +104,7 @@ type WorkerRegistry = TimedMap<
 >;
 
 /// Internal shared collector state
+
 pub struct CollectorInner {
     /// a [`tokio::sync::watch::Sender`] Sender  for updating [`ProcessMetrics`]
     updating_metrics_sender: watch::Sender<Option<ProcessMetrics>>,
@@ -112,45 +123,65 @@ pub struct CollectorInner {
     /// all timer by Duration
     pub global_timers: SkipMap<Duration, TimerData>,
 }
+
 #[derive(Debug, Default)]
 /// Metadata for a global timer entry.
 ///
 /// Tracks which queues are subscribed to a particular timer duration and
 /// stores the `DelayQueue` key for the scheduled entry.
+
 pub struct TimerData {
     /// Queues subscribed to this timer duration.
     pub queues: SkipSet<Uuid>,
     /// `DelayQueue` key for the scheduled timer entry.
     pub key: AtomicCell<Option<Key>>,
 }
+
 #[derive(Debug, Clone, Copy)]
 /// Commands delivered to per-queue timer tasks when a global timer fires.
+
 pub enum TimerCommand {
     /// Ask the timer task to process the supplied `TimerType`.
     RespondToTimer(TimerType),
 }
+
 /// Lazily-initialised global [`ProcessMetricsCollector`].
 ///
 /// Use `P_METRICS_COLLECTOR` to register/unregister workers and to access the
 /// runtime/process monitoring primitives provided by the collector.
+
 pub static P_METRICS_COLLECTOR: LazyLock<ProcessMetricsCollector> = LazyLock::new(|| {
+
     let rt_monitor = RuntimeMonitor::new(&Handle::current());
+
     let pid = std::process::id();
+
     let last_updated = AtomicCell::new(Utc::now());
+
     let workers = TimedMap::default();
+
     let queues = SkipMap::default();
+
     let global_timers = SkipMap::default();
+
     let cancel_token = CancellationToken::new();
+
     let process_tracker = ProcessTreeTracker::new();
+
     let process_monitor = RwLock::new(process_tracker);
+
     let hostname = hostname::get()
         .and_then(|name| {
+
             name.into_string()
                 .map_err(|_| std::io::Error::other("failed to convert from ostring"))
         })
         .unwrap_or_else(|_| "<Unknown>".to_owned());
+
     let (tx, rx) = mpsc::channel(10_000);
+
     let (updating_metrics_sender, updating_metrics_receiver) = watch::channel(None);
+
     let inner = Arc::new(CollectorInner {
         updating_metrics_sender,
         updating_metrics_receiver,
@@ -161,6 +192,7 @@ pub static P_METRICS_COLLECTOR: LazyLock<ProcessMetricsCollector> = LazyLock::ne
         queues,
         global_timers,
     });
+
     let collector = ProcessMetricsCollector {
         hostname,
         pid,
@@ -168,25 +200,34 @@ pub static P_METRICS_COLLECTOR: LazyLock<ProcessMetricsCollector> = LazyLock::ne
         cancel_token,
         tx,
     };
+
     collector.create_global_timer_task(rx);
+
     collector
 });
 
 impl ProcessMetricsCollector {
     /// Register a queue so it can receive global timer events.
+
     pub fn register_queue(
         &self,
         queue_id: Uuid,
         sender: Sender<TimerCommand>,
         metrics: Arc<QueueMetrics>,
     ) {
+
         let queues = &self.inner.queues;
+
         if queues.contains_key(&queue_id) {
+
             return;
         }
+
         queues.insert(queue_id, (sender, metrics));
     }
+
     /// Insert or refresh an active worker id.
+
     pub fn register_worker(
         &self,
         worker_id: Uuid,
@@ -197,40 +238,61 @@ impl ProcessMetricsCollector {
             Dt,
         ),
     ) {
+
         let workers = &self.inner.workers;
+
         if workers.contains_key(&worker_id) {
+
             return;
         }
+
         let timeout = Duration::from_secs(WORKER_STATE_TTL.as_());
+
         workers.insert_expirable(worker_id, state, timeout);
     }
 
     /// Returns if a timer exists for a specific queue
+
     pub fn timer_exists(&self, timer: &TimerType, queue_id: &Uuid) -> bool {
+
         let duration = timer.next_duration();
+
         if let Some(existing_timer) = self.inner.global_timers.get(&duration) {
+
             return existing_timer.value().queues.contains(queue_id);
         }
 
         false
     }
+
     /// Remove a previously-registered worker id.
+
     pub fn unregister_worker(&self, uuid: Uuid) {
+
         self.inner.workers.remove(&uuid);
     }
+
     /// Remove a previously-registered queue id.
+
     pub fn unregister_queue(&self, queue_id: Uuid) {
+
         self.inner.queues.remove(&queue_id);
+
         self.inner.global_timers.iter().for_each(|entry| {
+
             entry.value().queues.remove(&queue_id);
         });
     }
+
     fn create_global_timer_task(
         &self,
         rx: tokio::sync::mpsc::Receiver<(Uuid, TimerType, oneshot::Sender<()>)>,
     ) -> tokio::task::JoinHandle<()> {
+
         let processor = self.clone();
+
         let token = processor.cancel_token.clone();
+
         let interval = Duration::from_millis(PROCESS_METRIC_UPDATE_INTERVAL.as_());
 
         tokio::spawn(async move {
@@ -287,28 +349,40 @@ impl ProcessMetricsCollector {
             }
         }.boxed())
     }
+
     /// Return a stream that yields `ProcessMetrics` snapshots every `duration`.
     ///
     /// The stream terminates when `cancel_token` is cancelled.
+
     pub fn create_process_metrics_stream(
         &self,
         duration: Duration,
         cancel_token: CancellationToken,
     ) -> impl Stream<Item = Option<ProcessMetrics>> + use<'_> {
+
         #[allow(unused)]
+
         enum State<S> {
             Active(S),
             Done,
         }
+
         let intervals = self.inner.rt_monitor.intervals();
+
         let inner = self.inner.clone();
 
         futures::stream::unfold(State::Active(intervals), move |state| {
+
             let cancel = cancel_token.clone();
+
             let pid = self.pid;
+
             let hostname = &self.hostname;
+
             let inner = inner.clone();
+
             async move {
+
                 let intervals = match state {
                     State::Done => return None,
                     State::Active(s) => s,
@@ -353,6 +427,7 @@ impl ProcessMetricsCollector {
 /// Compact, serialisable snapshot of system and Tokio runtime metrics for the
 /// current process.
 #[derive(Clone, Debug, Serialize, Deserialize)]
+
 pub struct ProcessMetrics {
     /// Hostname of the machine running the process.
     pub hostname: CompactString,
@@ -371,8 +446,10 @@ pub struct ProcessMetrics {
     /// Timestamp of the last successful metric ffs refresh.
     pub last_updated: Dt,
 }
+
 /// Sample metadata from  a worker
 #[derive(Clone, Debug, Serialize, Deserialize, Copy)]
+
 pub struct WorkerMeta {
     /// The id of the worker
     pub worker_id: Uuid,
@@ -387,9 +464,11 @@ pub struct WorkerMeta {
     /// The current number of jobs the worker is processing.
     pub processing: usize,
 }
+
 impl WorkerMeta {
     /// Construct a [`WorkerMeta`] snapshot.
     #[must_use]
+
     pub fn new(
         worker_id: Uuid,
         started_at: Dt,
@@ -397,6 +476,7 @@ impl WorkerMeta {
         worker_opts: WorkerOpts,
         processing: usize,
     ) -> Self {
+
         Self {
             worker_id,
             started_at,
@@ -411,6 +491,7 @@ impl WorkerMeta {
 impl ProcessMetrics {
     /// Construct a `ProcessMetrics` snapshot from system and runtime values.
     #[must_use]
+
     pub fn new(
         hostname: CompactString,
         pid: u32,
@@ -418,8 +499,11 @@ impl ProcessMetrics {
         stats: ProcessTreeStats,
         workers: Vec<WorkerMeta>,
     ) -> Self {
+
         let memory_usage = stats.rss_bytes;
+
         let memory_stats = GLOBAL.stats();
+
         let process_cpu_usage = stats.cpu_usage;
 
         Self {
@@ -434,10 +518,12 @@ impl ProcessMetrics {
         }
     }
 }
+
 /// A mininal mirror of [`RuntimeMetrics`] with serde traits implemented.
 ///
 /// For full documents, check [`RuntimeMetrics`] .
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, PartialOrd, Ord, Hash)]
+
 pub struct RawRuntimeMetrics {
     /// Number of worker threads.
     pub workers_count: usize,
@@ -460,8 +546,10 @@ pub struct RawRuntimeMetrics {
     /// Elapsed time for this metrics interval.
     pub elapsed: Duration,
 }
+
 impl From<RuntimeMetrics> for RawRuntimeMetrics {
     fn from(value: RuntimeMetrics) -> Self {
+
         Self {
             workers_count: value.workers_count,
             live_tasks_count: value.live_tasks_count,
@@ -478,10 +566,14 @@ impl From<RuntimeMetrics> for RawRuntimeMetrics {
 }
 
 #[cfg(feature = "redis-store")]
+
 impl FromRedisValue for ProcessMetrics {
     fn from_redis_value(v: redis::Value) -> Result<Self, ParsingError> {
+
         let mut bytes: Vec<u8> = redis::from_redis_value(v)?;
+
         let metrics = simd_json::from_slice(&mut bytes).map_err(to_redis_parsing_error)?;
+
         Ok(metrics)
     }
 }

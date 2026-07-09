@@ -10,19 +10,23 @@ use redis::ToRedisArgs;
 use redis::{FromRedisValue, ParsingError, ToSingleRedisArg, Value};
 use serde::{Deserialize, Serialize};
 use std::str::FromStr;
+
 mod backoff;
 mod delay;
 mod repeat;
+
 use crate::{job::delay::JobDelay, KioError};
 pub use backoff::{BackOff, BackOffJobOptions, BackOffOptions, StoredFn};
 pub use repeat::Repeat;
 use std::time::Duration;
+
 // Job Metrics
 /// Timing and attempt statistics for a completed job.
 ///
 /// Obtain this by calling [`Job::get_metrics`].
 #[derive(Debug, Clone, Copy, Hash, Serialize, Deserialize, Display, Default)]
 #[display("job {id}-#{attempt} , ran for {ran_for:?}, delayed for {delayed_for:?}")]
+
 pub struct JobMetrics {
     /// How long the processor function ran.
     pub ran_for: Duration,
@@ -37,7 +41,9 @@ pub struct JobMetrics {
 }
 
 /// alias for [`DateTime<Utc>`]
+
 pub type Dt = DateTime<Utc>;
+
 /// The lifecycle state of a job within the queue.
 ///
 /// Jobs typically flow through `Wait` → `Active` → `Completed` or `Failed`.
@@ -59,6 +65,7 @@ pub type Dt = DateTime<Utc>;
     Eq,
 )]
 #[serde(rename_all = "camelCase")]
+
 pub enum JobState {
     /// Ready to be picked up by a worker. This is the default state.
     #[default]
@@ -86,17 +93,23 @@ pub enum JobState {
     /// The worker has started executing the processor function.
     Processing,
 }
+
 #[cfg(feature = "redis-store")]
+
 impl ToRedisArgs for JobState {
     fn write_redis_args<W>(&self, out: &mut W)
     where
         W: ?Sized + redis::RedisWrite,
     {
+
         out.write_arg_fmt(self.to_compact_string().to_lowercase());
     }
 }
+
 #[cfg(feature = "redis-store")]
+
 impl ToSingleRedisArg for JobState {}
+
 /// Per-job configuration options.
 ///
 /// Supply this to [`crate::Queue::add_job`] or [`crate::Queue::bulk_add`] to customise
@@ -116,6 +129,7 @@ impl ToSingleRedisArg for JobState {}
 /// ```
 #[derive(Debug, Serialize, Deserialize, Default, Hash, Clone, PartialEq)]
 #[serde(rename_all = "camelCase")]
+
 pub struct JobOptions {
     /// Scheduling priority (lower values run first). `0` means no priority.
     pub priority: u64,
@@ -142,6 +156,7 @@ pub struct JobOptions {
 /// Controls whether—and how many—completed or failed job records are kept.
 #[derive(Debug, Deserialize, Serialize, Clone, Copy, Hash, PartialEq, Eq)]
 #[serde(untagged)]
+
 pub enum RemoveOnCompletionOrFailure {
     /// `true` removes the record immediately; `false` retains it forever.
     Bool(bool),
@@ -150,23 +165,29 @@ pub enum RemoveOnCompletionOrFailure {
     /// Fine-grained policy controlling both age and count.
     Opts(KeepJobs),
 }
+
 impl Default for RemoveOnCompletionOrFailure {
     fn default() -> Self {
+
         Self::Bool(false)
     }
 }
+
 /// Fine-grained retention policy for completed/failed jobs.
 ///
 /// Both fields are optional; omit one to use only the other constraint.
 #[derive(Debug, Default, Deserialize, Serialize, Clone, Copy, Hash, PartialEq, Eq)]
+
 pub struct KeepJobs {
     /// Maximum age in **seconds** for a job record to be kept.
     pub age: Option<i64>,
     /// Maximum number of job records to keep.
     pub count: Option<i64>,
 }
+
 /// A single stack-trace entry captured when a job fails.
 #[derive(Debug, Default, Deserialize, Serialize, Clone, Hash, PartialEq, Eq)]
+
 pub struct Trace {
     /// The run (attempt) number on which this trace was captured.
     pub run: u64,
@@ -175,16 +196,20 @@ pub struct Trace {
     /// Stack frames collected at the point of failure.
     pub frames: Vec<CompactString>,
 }
+
 /// Details recorded when a job permanently fails.
 #[derive(Debug, Default, Deserialize, Serialize, Clone, Hash, PartialEq, Eq)]
+
 pub struct FailedDetails {
     /// The run (attempt) number on which the job finally failed.
     pub run: u64,
     /// Human-readable failure reason.
     pub reason: CompactString,
 }
+
 use chrono::serde::{ts_microseconds, ts_microseconds_option};
 use derive_more::Debug;
+
 /// A unit of work managed by a [`crate::Queue`].
 ///
 /// Jobs are created by [`crate::Queue::add_job`] / [`crate::Queue::bulk_add`] and passed to
@@ -197,6 +222,7 @@ use derive_more::Debug;
 /// to avoid accidentally logging sensitive payloads.
 #[derive(Debug, Serialize, Deserialize, Default, Hash, Clone, PartialEq)]
 #[serde(rename_all = "camelCase")]
+
 pub struct Job<D, R, P> {
     /// Unique numeric ID assigned by the store on insertion.
     pub id: Option<u64>,
@@ -244,10 +270,14 @@ pub struct Job<D, R, P> {
     /// Scheduling priority (lower value = higher priority).
     pub priority: u64,
 }
+
 #[cfg(feature = "redis-store")]
+
 impl FromRedisValue for JobState {
     fn from_redis_value(v: Value) -> Result<Self, ParsingError> {
+
         let mut bytes: Vec<u8> = Vec::from_redis_value(v)?;
+
         let state = Self::from_str(&CompactString::from_utf8(bytes.clone())?)
             .or_else(|_| simd_json::from_slice(&mut bytes))
             .map_err(to_redis_parsing_error)?;
@@ -277,46 +307,66 @@ use uuid::Uuid;
     Deserialize,
 )]
 #[display("{_0}-{_1}-{_2}")]
+
 pub struct JobToken(pub Uuid, pub Uuid, pub u64);
+
 #[cfg(feature = "redis-store")]
+
 impl FromRedisValue for JobToken {
     fn from_redis_value(v: Value) -> Result<Self, ParsingError> {
+
         let mut bytes: Vec<u8> = Vec::from_redis_value(v)?;
+
         if bytes == b"null" {
+
             return Err(ParsingError::from("null passed"));
         }
+
         let token = simd_json::from_slice(&mut bytes).map_err(to_redis_parsing_error)?;
+
         Ok(token)
     }
 }
 
 impl Default for JobToken {
     fn default() -> Self {
+
         Self(Uuid::new_v4(), Uuid::new_v4(), Default::default())
     }
 }
+
 #[cfg(feature = "redis-store")]
+
 impl ToRedisArgs for JobToken {
     fn write_redis_args<W>(&self, out: &mut W)
     where
         W: ?Sized + redis::RedisWrite,
     {
+
         out.write_arg_fmt(simd_json::to_string(self).unwrap_or_default());
     }
 }
+
 #[cfg(feature = "redis-store")]
+
 impl ToSingleRedisArg for JobToken {}
+
 // skip comparing the data,progress and return_value field;
 impl<D, R, P> Job<D, R, P> {
     /// Boxes this job on the heap, returning `Box<Job<D, R, P>>`.
+
     pub fn boxed(self) -> Box<Self> {
+
         Box::new(self)
     }
+
     /// Constructs a new `Job` with default options and no assigned ID.
     ///
     /// Prefer using [`Queue::add_job`](crate::Queue::add_job) to create jobs
     /// in normal usage; this constructor is primarily for testing and internal use.
+
     pub fn new(name: &str, data: Option<D>, id: Option<u64>, queue_name: Option<&str>) -> Self {
+
         let ts = Utc::now();
 
         Self {
@@ -341,20 +391,30 @@ impl<D, R, P> Job<D, R, P> {
             priority: 0,
         }
     }
+
     /// Returns timing and attempt statistics for this job, if it has been
     /// processed.
     ///
     /// The returned [`JobMetrics`] captures when the job ran, for how long,
     /// and the number of attempts made.  Returns `None` if the job has not
     /// been processed yet (i.e. `processed_on` and `finished_on` are not set).
+
     pub fn get_metrics(&self) -> Option<JobMetrics> {
+
         let delay = self.opts.delay.as_diff_ms(self.ts).cast_unsigned();
+
         let processed_on = self.processed_on.unwrap_or_default();
+
         let id = self.id.unwrap_or_default();
+
         let finished_on = self.finished_on.unwrap_or_default();
+
         let attempt = self.attempts_made;
+
         let ran_for = (finished_on - processed_on).to_std().unwrap_or_default();
+
         let delayed_for = (processed_on - self.ts).to_std().unwrap_or_default();
+
         Some(JobMetrics {
             ran_for,
             delayed_for,
@@ -366,11 +426,16 @@ impl<D, R, P> Job<D, R, P> {
 
     /// Applies the given [`JobOptions`] to this job, updating priority, delay,
     /// and other scheduling fields.
+
     pub fn add_opts(&mut self, opts: JobOptions) {
+
         self.priority = opts.priority;
+
         self.delay = opts.delay.as_diff_ms(self.ts).cast_unsigned();
+
         self.opts = opts;
     }
+
     /// Updates the job's progress value and persists it to the store.
     ///
     /// Call this from inside your processor function to report incremental
@@ -380,13 +445,16 @@ impl<D, R, P> Job<D, R, P> {
     /// # Errors
     ///
     /// Returns [`KioError`](crate::KioError) if the store update fails.
+
     pub fn update_progress_sync<C>(&mut self, value: P, store: &C) -> Result<(), KioError>
     where
         P: Serialize + Clone,
         C: Store<D, R, P>,
     {
+
         store.update_job_progress_sync(self, value)
     }
+
     /// Updates the job's progress value and persists it to the store.
     ///
     /// Call this from inside your processor function to report incremental
@@ -397,15 +465,19 @@ impl<D, R, P> Job<D, R, P> {
     ///
     /// Returns [`KioError`](crate::KioError) if the store update fails.
     #[allow(clippy::future_not_send)]
+
     pub async fn update_progress<C>(&mut self, value: P, store: &C) -> Result<(), KioError>
     where
         P: Serialize + Clone,
         C: Store<D, R, P>,
     {
+
         store.update_job_progress(self, value).await
     }
 }
+
 #[cfg(feature = "redis-store")]
+
 impl<D, R, P> FromRedisValue for Job<D, R, P>
 where
     D: for<'de> Deserialize<'de>, // D, R, P must be deserializable
@@ -413,17 +485,25 @@ where
     P: for<'de> Deserialize<'de>,
 {
     fn from_redis_value(v: Value) -> Result<Self, ParsingError> {
+
         let other = to_redis_parsing_error;
+
         let mut job: Self = Self::new("", None, None, None);
+
         let map = v
             .as_map_iter()
             .ok_or_else(|| ParsingError::from("failed to extract map"))?;
+
         for (key, value) in map {
+
             if let (Value::BulkString(key), Value::BulkString(bytes)) = (key, value) {
+
                 let mut bytes = bytes.clone();
+
                 match key.as_slice() {
                     b"id" => job.id = simd_json::from_slice(&mut bytes).map_err(other)?,
                     b"timestamp" => {
+
                         job.ts = simd_json::from_slice::<Option<u64>>(&mut bytes)
                             .map_err(other)?
                             .and_then(|t| Dt::from_timestamp_micros(t.cast_signed()))
@@ -432,50 +512,62 @@ where
                     b"opts" => job.opts = simd_json::from_slice(&mut bytes).map_err(other)?,
                     b"name" => job.name = simd_json::from_slice(&mut bytes).map_err(other)?,
                     b"queuename" | b"queueName" => {
+
                         job.queue_name = simd_json::from_slice(&mut bytes).map_err(other)?;
                     }
                     b"state" => job.state = JobState::from_redis_value_ref(value)?,
                     b"token" => {
+
                         job.token = simd_json::from_slice(&mut bytes).unwrap_or_default();
                     }
                     b"progress" => {
+
                         job.progress = simd_json::from_slice(&mut bytes).map_err(other)?;
                     }
                     b"attemptsmade" | b"attemptsMade" => {
+
                         job.attempts_made = simd_json::from_slice(&mut bytes).map_err(other)?;
                     }
                     b"delay" => job.delay = simd_json::from_slice(&mut bytes).map_err(other)?,
                     b"priority" => {
+
                         job.priority = simd_json::from_slice(&mut bytes).map_err(other)?;
                     }
                     b"data" => job.data = simd_json::from_slice(&mut bytes).map_err(other)?,
                     b"returnedvalue" | b"returnedValue" => {
+
                         job.returned_value = simd_json::from_slice(&mut bytes).map_err(other)?;
                     }
                     b"stacktrace" | b"stackTrace" => {
+
                         job.stack_trace = simd_json::from_slice(&mut bytes).map_err(other)?;
                     }
                     b"logs" => job.logs = simd_json::from_slice(&mut bytes).map_err(other)?,
                     b"failedreason" | b"failedReason" => {
+
                         job.failed_reason = simd_json::from_slice(&mut bytes).map_err(other)?;
                     }
                     b"processedon" | b"processedOn" => {
+
                         job.processed_on = simd_json::from_slice::<Option<u64>>(&mut bytes)
                             .map_err(other)?
                             .and_then(|t| Dt::from_timestamp_micros(t.cast_signed()));
                     } // Assuming Dt is handled by simd_json
                     b"finishedon" | b"finishedOn" => {
+
                         job.finished_on = simd_json::from_slice::<Option<u64>>(&mut bytes)
                             .map_err(other)?
                             .and_then(|t| Dt::from_timestamp_micros(t.cast_signed()));
                     }
                     b"stalledcounter" | b"stalledCounter" => {
+
                         job.stalled_counter = simd_json::from_slice(&mut bytes).map_err(other)?;
                     }
                     _ => { /* Ignore unknown fields if your hash might contain others */ }
                 }
             }
         }
+
         Ok(job)
     }
 }

@@ -7,6 +7,7 @@ use std::{
 use tracing::info;
 
 #[cfg(not(feature = "tracing"))]
+
 macro_rules! info {
     ($($arg:tt)*) => { println!($($arg)*) };
 }
@@ -21,21 +22,28 @@ use kiomq::{fetch_redis_pass, Config, RedisStore, SharedRedis};
 #[cfg(feature = "rocksdb-store")]
 use kiomq::{temporary_rocks_db, RocksDbStore};
 use uuid::Uuid;
+
 #[tokio::main]
 #[framed]
+
 async fn main() -> KioResult<()> {
+
     #[cfg(feature = "tracing")]
     setup_tracing();
+
     #[cfg(not(feature = "tracing"))]
     console_subscriber::init();
+
     let remove_opts = RemoveOnCompletionOrFailure::Opts(kiomq::KeepJobs {
         age: Some(60 * 60),
         count: None,
     });
+
     let backoff_opts = BackOffJobOptions::Opts(kiomq::BackOffOptions {
         type_: Some("exponential".to_compact_string()),
         delay: Some(200),
     });
+
     let queue_opts = QueueOpts {
         remove_on_fail: Some(remove_opts),
         remove_on_complete: Some(remove_opts),
@@ -46,28 +54,43 @@ async fn main() -> KioResult<()> {
     };
 
     let counter = Arc::new(AtomicUsize::default());
+
     let _store: InMemoryStore<i32, i32, i32> = InMemoryStore::new(None, "trial");
+
     #[cfg(all(feature = "redis-store", not(feature = "default")))]
     let password = fetch_redis_pass();
+
     #[cfg(all(feature = "redis-store", not(feature = "default")))]
     let mut config = Config::default();
+
     #[cfg(all(feature = "redis-store", not(feature = "default")))]
     if let Some(cfg) = config.connection.as_mut() {
+
         cfg.redis.password = password;
     }
+
     #[cfg(all(feature = "redis-store", not(feature = "default")))]
     let _redis_con = SharedRedis::create(&config)?;
+
     #[cfg(all(feature = "redis-store", not(feature = "default")))]
     let _store = RedisStore::new(None, "trial", &_redis_con).await?;
+
     #[cfg(feature = "rocksdb-store")]
     let db = Arc::new(temporary_rocks_db());
+
     #[cfg(feature = "rocksdb-store")]
     let _store = RocksDbStore::new(None, "test", db.clone())?;
+
     let events = counter.clone();
+
     let queue = Queue::new(_store, Some(queue_opts)).await?;
+
     let event_listener = move |state: EventParameters<_, _>| {
+
         let completed = events.clone();
+
         async move {
+
             // do something with return state
             if let EventParameters::Completed {
                 job_metrics,
@@ -77,18 +100,26 @@ async fn main() -> KioResult<()> {
                 job_id: _,
             } = state
             {
+
                 completed.fetch_add(1, std::sync::atomic::Ordering::AcqRel);
+
                 info!("{job_metrics}  expected_delay: {expected_delay:?}",);
             }
         }
     };
+
     queue.on_all_events(event_listener);
 
     let count = 1000;
+
     let repeats = 2;
+
     use croner::Cron;
+
     let _cron_schedule: Cron = "1/2 * * * * *".parse()?;
+
     let iterator = (0..count).map(move |_i| {
+
         //use rand::Rng;
         //let priority = rand::rng().random_range(1..count); // ucomment to use  random priority
 
@@ -98,12 +129,16 @@ async fn main() -> KioResult<()> {
             //priority, // uncomment to set priority
             ..Default::default()
         };
+
         if _i == 2 {
+
             job_opts.attempts = repeats + 1;
             //job_opts.repeat = _cron_schedule.as_str().try_into().ok();
             //job_opts.delay = _cron_schedule.clone().into();
         }
+
         let name = Uuid::new_v4().to_string();
+
         (name, Some(job_opts), _i)
     });
 
@@ -111,28 +146,44 @@ async fn main() -> KioResult<()> {
         //concurrency: 100, // uncomment to use set concurrency
         ..Default::default()
     };
+
     let processor = |con: _, job: Job<_, _, _>| process_callback(con, job);
+
     let worker = Worker::new_async(&queue, processor, Some(opts))?;
+
     let adding = Instant::now();
+
     queue.bulk_add_only(iterator).await?;
+
     println!("adding items took {:#?}", adding.elapsed());
+
     worker.run()?;
+
     let now = Instant::now();
+
     while counter.load(std::sync::atomic::Ordering::Acquire) < count as usize {
         //tokio::time::sleep(Duration::from_millis(300)).await;
     }
+
     dbg!(now.elapsed());
+
     worker.close();
+
     if worker.closed() {
+
         queue.obliterate().await?;
     }
+
     Ok(())
 }
+
 #[framed]
+
 async fn process_callback<S: Store<i32, i32, i32>>(
     _store: Arc<S>,
     job: Job<i32, i32, i32>,
 ) -> Result<i32, std::io::Error> {
+
     // let progress = job.progress.unwrap_or_default();
     // store.update_job_progress(&mut job, progress + 1).await?;
     //let id: u64 = job.id.unwrap_or_default().parse().unwrap_or_default();
@@ -144,10 +195,15 @@ async fn process_callback<S: Store<i32, i32, i32>>(
 }
 
 #[cfg(feature = "tracing")]
+
 fn setup_tracing() {
+
     use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
+
     let console_layer = console_subscriber::spawn();
+
     let fmt_layer = tracing_subscriber::fmt::layer().with_target(true);
+
     let filter_layer = tracing_subscriber::EnvFilter::from_default_env()
         //.add_directive("tokio=trace".parse().unwrap()) // Uncomment to use tokio-console
         //.add_directive("runtime=trace".parse().unwrap()) // Uncomment to use tokio-console

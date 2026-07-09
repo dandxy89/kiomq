@@ -19,6 +19,7 @@
 /// });
 /// ```
 #[macro_export]
+
 macro_rules! worker_store_suite {
     ($mod_name:ident, $make_store:expr) => {
         mod $mod_name {
